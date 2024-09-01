@@ -183,13 +183,9 @@ unsafe fn rust_eh_personality(
                 UnwindReasonCode::CONTINUE_UNWIND
             }
             EHAction::Cleanup(lpad) | EHAction::Catch(lpad) | EHAction::Filter(lpad) => {
-                _Unwind_SetGR(
-                    unwind_ctx,
-                    Arch::UNWIND_DATA_REG.0 .0 as _,
-                    exception as usize,
-                );
+                _Unwind_SetGR(unwind_ctx, Arch::UNWIND_DATA_REG.0 .0 as _, exception as _);
                 _Unwind_SetGR(unwind_ctx, Arch::UNWIND_DATA_REG.1 .0 as _, 0);
-                _Unwind_SetIP(unwind_ctx, lpad);
+                _Unwind_SetIP(unwind_ctx, lpad as _);
                 UnwindReasonCode::INSTALL_CONTEXT
             }
             EHAction::Terminate => UnwindReasonCode::FATAL_PHASE2_ERROR,

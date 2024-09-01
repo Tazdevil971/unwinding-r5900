@@ -3,7 +3,7 @@ mod find_fde;
 mod frame;
 
 use core::ffi::c_void;
-use core::ptr;
+use core::{mem, ptr};
 use gimli::Register;
 
 use crate::abi::*;
@@ -47,9 +47,9 @@ fn with_context<T, F: FnOnce(&mut Context) -> T>(f: F) -> T {
 pub struct UnwindException {
     pub exception_class: u64,
     pub exception_cleanup: Option<UnwindExceptionCleanupFn>,
-    private_1: Option<UnwindStopFn>,
-    private_2: usize,
-    private_unused: [usize; Arch::UNWIND_PRIVATE_DATA_SIZE - 2],
+    private_1: UnwindWord,
+    private_2: UnwindWord,
+    private_unused: [UnwindWord; Arch::UNWIND_PRIVATE_DATA_SIZE - 2],
 }
 
 pub struct UnwindContext<'a> {
@@ -59,37 +59,41 @@ pub struct UnwindContext<'a> {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn _Unwind_GetGR(unwind_ctx: &UnwindContext<'_>, index: c_int) -> usize {
+pub extern "C" fn _Unwind_GetGR(unwind_ctx: &UnwindContext<'_>, index: c_int) -> UnwindWord {
     unwind_ctx.ctx[Register(index as u16)]
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn _Unwind_GetCFA(unwind_ctx: &UnwindContext<'_>) -> usize {
+pub extern "C" fn _Unwind_GetCFA(unwind_ctx: &UnwindContext<'_>) -> UnwindWord {
     unwind_ctx.ctx[Arch::SP]
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn _Unwind_SetGR(unwind_ctx: &mut UnwindContext<'_>, index: c_int, value: usize) {
+pub extern "C" fn _Unwind_SetGR(
+    unwind_ctx: &mut UnwindContext<'_>,
+    index: c_int,
+    value: UnwindWord,
+) {
     unwind_ctx.ctx[Register(index as u16)] = value;
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn _Unwind_GetIP(unwind_ctx: &UnwindContext<'_>) -> usize {
-    unwind_ctx.ctx[Arch::RA]
+pub extern "C" fn _Unwind_GetIP(unwind_ctx: &UnwindContext<'_>) -> UnwindPtr {
+    unwind_ctx.ctx[Arch::RA] as _
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn _Unwind_GetIPInfo(
     unwind_ctx: &UnwindContext<'_>,
     ip_before_insn: &mut c_int,
-) -> usize {
+) -> UnwindPtr {
     *ip_before_insn = unwind_ctx.signal as _;
-    unwind_ctx.ctx[Arch::RA]
+    unwind_ctx.ctx[Arch::RA] as _
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn _Unwind_SetIP(unwind_ctx: &mut UnwindContext<'_>, value: usize) {
-    unwind_ctx.ctx[Arch::RA] = value;
+pub extern "C" fn _Unwind_SetIP(unwind_ctx: &mut UnwindContext<'_>, value: UnwindPtr) {
+    unwind_ctx.ctx[Arch::RA] = value as _;
 }
 
 #[unsafe(no_mangle)]
@@ -101,12 +105,12 @@ pub extern "C" fn _Unwind_GetLanguageSpecificData(unwind_ctx: &UnwindContext<'_>
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn _Unwind_GetRegionStart(unwind_ctx: &UnwindContext<'_>) -> usize {
+pub extern "C" fn _Unwind_GetRegionStart(unwind_ctx: &UnwindContext<'_>) -> UnwindPtr {
     unwind_ctx.frame.map(|f| f.initial_address()).unwrap_or(0)
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn _Unwind_GetTextRelBase(unwind_ctx: &UnwindContext<'_>) -> usize {
+pub extern "C" fn _Unwind_GetTextRelBase(unwind_ctx: &UnwindContext<'_>) -> UnwindPtr {
     unwind_ctx
         .frame
         .map(|f| f.bases().eh_frame.text.unwrap() as _)
@@ -114,7 +118,7 @@ pub extern "C" fn _Unwind_GetTextRelBase(unwind_ctx: &UnwindContext<'_>) -> usiz
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn _Unwind_GetDataRelBase(unwind_ctx: &UnwindContext<'_>) -> usize {
+pub extern "C" fn _Unwind_GetDataRelBase(unwind_ctx: &UnwindContext<'_>) -> UnwindPtr {
     unwind_ctx
         .frame
         .map(|f| f.bases().eh_frame.data.unwrap() as _)
@@ -190,9 +194,9 @@ pub unsafe extern "C-unwind" fn _Unwind_RaiseException(
         }
 
         // Disambiguate normal frame and signal frame.
-        let handler_cfa = ctx[Arch::SP] - signal as usize;
+        let handler_cfa = ctx[Arch::SP] - signal as UnwindWord;
         unsafe {
-            (*exception).private_1 = None;
+            (*exception).private_1 = 0;
             (*exception).private_2 = handler_cfa;
         }
 
@@ -207,12 +211,12 @@ pub unsafe extern "C-unwind" fn _Unwind_RaiseException(
 fn raise_exception_phase2(
     exception: *mut UnwindException,
     ctx: &mut Context,
-    handler_cfa: usize,
+    handler_cfa: UnwindWord,
 ) -> UnwindReasonCode {
     let mut signal = false;
     loop {
         if let Some(frame) = try2!(Frame::from_context(ctx, signal)) {
-            let frame_cfa = ctx[Arch::SP] - signal as usize;
+            let frame_cfa = ctx[Arch::SP] - signal as UnwindWord;
             if let Some(personality) = frame.personality() {
                 let code = unsafe {
                     personality(
@@ -260,8 +264,8 @@ pub unsafe extern "C-unwind" fn _Unwind_ForcedUnwind(
 ) -> UnwindReasonCode {
     with_context(|ctx| {
         unsafe {
-            (*exception).private_1 = Some(stop);
-            (*exception).private_2 = stop_arg as _;
+            (*exception).private_1 = stop as usize as UnwindWord;
+            (*exception).private_2 = stop_arg as UnwindWord;
         }
 
         let code = force_unwind_phase2(exception, ctx, stop, stop_arg);
@@ -346,11 +350,12 @@ fn force_unwind_phase2(
 pub unsafe extern "C-unwind" fn _Unwind_Resume(exception: *mut UnwindException) -> ! {
     with_context(|ctx| {
         let code = match unsafe { (*exception).private_1 } {
-            None => {
+            0 => {
                 let handler_cfa = unsafe { (*exception).private_2 };
                 raise_exception_phase2(exception, ctx, handler_cfa)
             }
-            Some(stop) => {
+            stop => {
+                let stop = unsafe { mem::transmute::<_, UnwindStopFn>(stop as usize) };
                 let stop_arg = unsafe { (*exception).private_2 as _ };
                 force_unwind_phase2(exception, ctx, stop, stop_arg)
             }
@@ -367,8 +372,8 @@ pub unsafe extern "C-unwind" fn _Unwind_Resume_or_Rethrow(
     exception: *mut UnwindException,
 ) -> UnwindReasonCode {
     let stop = match unsafe { (*exception).private_1 } {
-        None => return unsafe { _Unwind_RaiseException(exception) },
-        Some(v) => v,
+        0 => return unsafe { _Unwind_RaiseException(exception) },
+        stop => unsafe { mem::transmute::<_, UnwindStopFn>(stop as usize) },
     };
 
     with_context(|ctx| {

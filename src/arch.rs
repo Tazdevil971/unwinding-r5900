@@ -2,6 +2,9 @@
 mod x86_64 {
     use gimli::{Register, X86_64};
 
+    pub type UnwindWord = usize;
+    pub type UnwindPtr = usize;
+
     pub struct Arch;
 
     #[allow(unused)]
@@ -19,6 +22,9 @@ pub use x86_64::*;
 #[cfg(target_arch = "x86")]
 mod x86 {
     use gimli::{Register, X86};
+
+    pub type UnwindWord = usize;
+    pub type UnwindPtr = usize;
 
     pub struct Arch;
 
@@ -38,6 +44,9 @@ pub use x86::*;
 mod riscv {
     use gimli::{Register, RiscV};
 
+    pub type UnwindWord = usize;
+    pub type UnwindPtr = usize;
+
     pub struct Arch;
 
     #[allow(unused)]
@@ -55,6 +64,9 @@ pub use riscv::*;
 #[cfg(target_arch = "aarch64")]
 mod aarch64 {
     use gimli::{AArch64, Register};
+
+    pub type UnwindWord = usize;
+    pub type UnwindPtr = usize;
 
     pub struct Arch;
 

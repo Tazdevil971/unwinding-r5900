@@ -80,7 +80,7 @@ impl Frame {
         &self,
         ctx: &Context,
         expr: UnwindExpression<usize>,
-    ) -> Result<usize, gimli::Error> {
+    ) -> Result<UnwindWord, gimli::Error> {
         let expr = expr.get(&self.fde_result.eh_frame).unwrap();
         let mut eval =
             Evaluation::<_, StoreOnStack>::new_in(expr.0, self.fde_result.fde.cie().encoding());
@@ -111,7 +111,7 @@ impl Frame {
                 .ok_or(gimli::Error::PopWithEmptyStack)?
                 .location
             {
-                Location::Address { address } => address as usize,
+                Location::Address { address } => address as UnwindWord,
                 _ => unreachable!(),
             },
         )
@@ -122,13 +122,13 @@ impl Frame {
         &self,
         _ctx: &Context,
         _expr: UnwindExpression<usize>,
-    ) -> Result<usize, gimli::Error> {
+    ) -> Result<UnwindWord, gimli::Error> {
         Err(gimli::Error::UnsupportedEvaluation)
     }
 
     pub fn adjust_stack_for_args(&self, ctx: &mut Context) {
         let size = self.row.saved_args_size();
-        ctx[Arch::SP] = ctx[Arch::SP].wrapping_add(size as usize);
+        ctx[Arch::SP] = ctx[Arch::SP].wrapping_add(size as UnwindWord);
     }
 
     pub fn unwind(&self, ctx: &Context) -> Result<Context, gimli::Error> {
@@ -137,12 +137,12 @@ impl Frame {
 
         let cfa = match *row.cfa() {
             CfaRule::RegisterAndOffset { register, offset } => {
-                ctx[register].wrapping_add(offset as usize)
+                ctx[register].wrapping_add(offset as UnwindWord)
             }
             CfaRule::Expression(expr) => self.evaluate_expression(ctx, expr)?,
         };
 
-        new_ctx[Arch::SP] = cfa as _;
+        new_ctx[Arch::SP] = cfa;
         new_ctx[Arch::RA] = 0;
 
         #[warn(non_exhaustive_omitted_patterns)]
@@ -150,17 +150,17 @@ impl Frame {
             let value = match *rule {
                 RegisterRule::Undefined | RegisterRule::SameValue => ctx[*reg],
                 RegisterRule::Offset(offset) => unsafe {
-                    *((cfa.wrapping_add(offset as usize)) as *const usize)
+                    *((cfa.wrapping_add(offset as UnwindWord)) as *const UnwindWord)
                 },
-                RegisterRule::ValOffset(offset) => cfa.wrapping_add(offset as usize),
+                RegisterRule::ValOffset(offset) => cfa.wrapping_add(offset as UnwindWord),
                 RegisterRule::Register(r) => ctx[r],
                 RegisterRule::Expression(expr) => {
                     let addr = self.evaluate_expression(ctx, expr)?;
-                    unsafe { *(addr as *const usize) }
+                    unsafe { *(addr as *const UnwindWord) }
                 }
                 RegisterRule::ValExpression(expr) => self.evaluate_expression(ctx, expr)?,
                 RegisterRule::Architectural => unreachable!(),
-                RegisterRule::Constant(value) => value as usize,
+                RegisterRule::Constant(value) => value as UnwindWord,
                 _ => unreachable!(),
             };
             new_ctx[*reg] = value;

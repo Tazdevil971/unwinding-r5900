@@ -1,3 +1,4 @@
+use crate::arch::UnwindWord;
 use core::fmt;
 use core::ops;
 use gimli::{Register, X86};
@@ -33,9 +34,9 @@ impl fmt::Debug for Context {
 }
 
 impl ops::Index<Register> for Context {
-    type Output = usize;
+    type Output = UnwindWord;
 
-    fn index(&self, reg: Register) -> &usize {
+    fn index(&self, reg: Register) -> &UnwindWord {
         match reg {
             Register(0..=7) => &self.registers[reg.0 as usize],
             X86::RA => &self.ra,
@@ -46,7 +47,7 @@ impl ops::Index<Register> for Context {
 }
 
 impl ops::IndexMut<gimli::Register> for Context {
-    fn index_mut(&mut self, reg: Register) -> &mut usize {
+    fn index_mut(&mut self, reg: Register) -> &mut UnwindWord {
         match reg {
             Register(0..=7) => &mut self.registers[reg.0 as usize],
             X86::RA => &mut self.ra,
