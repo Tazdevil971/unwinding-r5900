@@ -5,6 +5,7 @@ use crate::util::*;
 
 #[cfg(not(feature = "unwinder"))]
 use crate::arch::Arch;
+use crate::arch::{UnwindPtr, UnwindWord};
 #[cfg(feature = "unwinder")]
 pub use crate::unwinder::*;
 
@@ -74,7 +75,7 @@ pub type UnwindStopFn = unsafe extern "C" fn(
 pub struct UnwindException {
     pub exception_class: u64,
     pub exception_cleanup: Option<UnwindExceptionCleanupFn>,
-    private: [usize; Arch::UNWIND_PRIVATE_DATA_SIZE],
+    private: [UnwindWord; Arch::UNWIND_PRIVATE_DATA_SIZE],
 }
 
 pub type UnwindTraceFn =
@@ -118,34 +119,36 @@ macro_rules! binding {
     () => {};
     (unsafe extern $abi: literal fn $name: ident ($($arg: ident : $arg_ty: ty),*$(,)?) $(-> $ret: ty)?; $($rest: tt)*) => {
         const _: unsafe extern $abi fn($($arg_ty),*) $(-> $ret)? = $name;
+        binding!($($rest)*);
     };
 
     (extern $abi: literal fn $name: ident ($($arg: ident : $arg_ty: ty),*$(,)?) $(-> $ret: ty)?; $($rest: tt)*) => {
         const _: extern $abi fn($($arg_ty),*) $(-> $ret)? = $name;
+        binding!($($rest)*);
     };
 }
 
 binding! {
-    extern "C" fn _Unwind_GetGR(unwind_ctx: &UnwindContext<'_>, index: c_int) -> usize;
-    extern "C" fn _Unwind_GetCFA(unwind_ctx: &UnwindContext<'_>) -> usize;
+    extern "C" fn _Unwind_GetGR(unwind_ctx: &UnwindContext<'_>, index: c_int) -> UnwindWord;
+    extern "C" fn _Unwind_GetCFA(unwind_ctx: &UnwindContext<'_>) -> UnwindWord;
     extern "C" fn _Unwind_SetGR(
         unwind_ctx: &mut UnwindContext<'_>,
         index: c_int,
-        value: usize,
+        value: UnwindWord,
     );
-    extern "C" fn _Unwind_GetIP(unwind_ctx: &UnwindContext<'_>) -> usize;
+    extern "C" fn _Unwind_GetIP(unwind_ctx: &UnwindContext<'_>) -> UnwindPtr;
     extern "C" fn _Unwind_GetIPInfo(
         unwind_ctx: &UnwindContext<'_>,
         ip_before_insn: &mut c_int,
-    ) -> usize;
+    ) -> UnwindPtr;
     extern "C" fn _Unwind_SetIP(
         unwind_ctx: &mut UnwindContext<'_>,
-        value: usize,
+        value: UnwindPtr,
     );
     extern "C" fn _Unwind_GetLanguageSpecificData(unwind_ctx: &UnwindContext<'_>) -> *mut c_void;
-    extern "C" fn _Unwind_GetRegionStart(unwind_ctx: &UnwindContext<'_>) -> usize;
-    extern "C" fn _Unwind_GetTextRelBase(unwind_ctx: &UnwindContext<'_>) -> usize;
-    extern "C" fn _Unwind_GetDataRelBase(unwind_ctx: &UnwindContext<'_>) -> usize;
+    extern "C" fn _Unwind_GetRegionStart(unwind_ctx: &UnwindContext<'_>) -> UnwindPtr;
+    extern "C" fn _Unwind_GetTextRelBase(unwind_ctx: &UnwindContext<'_>) -> UnwindPtr;
+    extern "C" fn _Unwind_GetDataRelBase(unwind_ctx: &UnwindContext<'_>) -> UnwindPtr;
     extern "C" fn _Unwind_FindEnclosingFunction(pc: *mut c_void) -> *mut c_void;
     unsafe extern "C-unwind" fn _Unwind_RaiseException(
         exception: *mut UnwindException,
