@@ -23,9 +23,22 @@ mod aarch64;
 #[cfg(target_arch = "aarch64")]
 pub use aarch64::*;
 
+#[cfg(any(
+    target_arch = "mips64",
+    target_arch = "mips64r6",
+))]
+mod mips64;
+#[cfg(any(
+    target_arch = "mips64",
+    target_arch = "mips64r6",
+))]
+pub use mips64::*;
+
 #[cfg(not(any(
     target_arch = "x86_64",
     target_arch = "x86",
+    target_arch = "mips64",
+    target_arch = "mips64r6",
     target_arch = "riscv64",
     target_arch = "riscv32",
     target_arch = "aarch64",

@@ -51,6 +51,10 @@ core = ["dep:core"]
 libc = ["dep:libc"]
 spin = ["dep:spin"]
 
+# Target specific features
+soft-float = []
+mips-single-float = []
+
 [profile.release]
 debug = true
 

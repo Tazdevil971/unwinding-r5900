@@ -20,6 +20,13 @@
     feature(core_intrinsics)
 )]
 #![cfg_attr(feature = "panic-handler", feature(thread_local))]
+#![cfg_attr(
+    any(
+        target_arch = "mips64",
+        target_arch = "mips64r6",
+    ),
+    feature(asm_experimental_arch)
+)]
 #![no_std]
 
 #[cfg(feature = "alloc")]
